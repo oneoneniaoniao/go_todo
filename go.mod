@@ -1,4 +1,4 @@
-module my_modules
+module github.com/oneoneniaoniao/go_todo
 
 go 1.22.6
 
