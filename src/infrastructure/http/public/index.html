@@ -16,7 +16,7 @@
 
         {{ range .todos }}
             <div class="todo-item">
-                <p class="todo-content"><a class="edit-link" href="/edit?id={{.ID}}">{{ .ID }}:{{ .Content }}</a></p>
+                <p class="todo-content"><a class="edit-link" href="todo/edit?id={{.ID}}">{{ .ID }}:{{ .Content }}</a></p>
                 <a class="delete-link" href="/todo/delete?id={{ .ID }}">[削除]</a>
             </div>
         {{ end }}

@@ -1,116 +1,104 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/oneoneniaoniao/go_todo/src/domain/models"
-	"github.com/oneoneniaoniao/go_todo/src/infra/database/repositories"
-	"github.com/oneoneniaoniao/go_todo/src/infra/database"
+	"github.com/oneoneniaoniao/go_todo/src/infrastructure/database"
+	repository "github.com/oneoneniaoniao/go_todo/src/infrastructure/database/repositories"
 )
 
 
-func errorDB(db *gorm.DB, c *gin.Context) bool {
-	if db.Error != nil {
-		log.Printf("Error todos: %v", db.Error)
-		c.AbortWithStatus(http.StatusInternalServerError)
-		return true // エラーがあったことを示す
-	}
-	return false // エラーがなかったことを示す
-}
-
-func listeners(r *gin.Engine, db *gorm.DB) {
-	r.GET("/todo/delete", func(c *gin.Context) {
-		id, _ := c.GetQuery("id")
-		result := db.Delete(&models.Todo{}, id)
-		if errorDB(result, c) { return }
-		c.Redirect(http.StatusMovedPermanently, "/index")
-	})
-
-	r.POST("/todo/update", func(c *gin.Context) {
-		id, _ := strconv.Atoi(c.PostForm("id"))
-		content := c.PostForm("content")
-		var todo *models.Todo
-		result := db.Where("id = ?", id).Take(&todo)
-		if errorDB(result, c) { return }
-		todo.Content = content
-		result = db.Save(&todo)
-		if errorDB(result, c) { return }
-		c.Redirect(http.StatusMovedPermanently, "/index")
-	})
-
-	r.POST("/todo/create", func(c *gin.Context) {
-		content := c.PostForm("content")
-		fmt.Println(c.Request.PostForm, content)
-		result := db.Create(&models.Todo{Content: content})
-		if errorDB(result, c) { return }
-		c.Redirect(http.StatusMovedPermanently, "/index")
-	})
-
-	r.GET("/todo/list", func(c *gin.Context) {
-		var todos []*models.Todo
-		// Get all records
-		result := db.Find(&todos)
-		if errorDB(result, c) { return }
-		fmt.Println(json.NewEncoder(os.Stdout).Encode(todos))
-		c.JSON(http.StatusOK, todos)
-	})
-
-	r.GET("/todo/get", func(c *gin.Context) {
-		var todo *models.Todo
-		id, _ := c.GetQuery("id")
-		result := db.First(&todo, id)
-		if errorDB(result, c) { return }
-		// JSON形式でレスポンスを返す
-		fmt.Println(json.NewEncoder(os.Stdout).Encode(todo))
-		c.JSON(http.StatusOK, todo)
-	})
-
-	r.GET("/index", func(c *gin.Context) {
-		var todos []*models.Todo
-		result := db.Find(&todos)
-		if errorDB(result, c) { return }
-		c.HTML(http.StatusOK, "index.html", gin.H{
-			"title": "やることリスト",
-			"todos": todos,
-		})
-	})
-
-	//todo edit
-	r.GET("/edit", func(c *gin.Context) {
-		id, err := strconv.Atoi(c.Query("id"))
-		if err != nil {
-			log.Fatalln(err)
-		}
-		var todo *models.Todo
-		db.Where("id = ?", id).Take(&todo)
-		c.HTML(http.StatusOK, "edit.html", gin.H{
-			"title": "Todoの編集",
-			"todo":  todo,
-		})
-	})
-}
-
 func main() {
-	r := gin.Default()
-	db, err := connectionDB()
+	engine := gin.Default()
+	db, err := database.ConnectionDB()
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
+	// リポジトリの初期化
+	todoRepo := repository.NewTodoRepository(db)
+
 
 	// Migrate the schema
 	err = db.AutoMigrate(&models.Todo{})
 	if err != nil {
 		log.Fatalf("Failed to migrate database: %v", err)
 	}
-	r.LoadHTMLGlob("src/infrastructure/http/public/*")
-	listeners(r, db)
+	engine.Static("/static", "./static");
+	engine.LoadHTMLGlob("src/infrastructure/http/public/*")
+	// 下記は開発環境のhtmlのホットリロード用
+	engine.Use(func(c *gin.Context) {
+    engine.LoadHTMLGlob("src/infrastructure/http/public/*")
+    c.Next()
+})
+	engine.GET("/index", func(c *gin.Context) {
+		var todos []*models.Todo
+
+		// Get all records
+		todos, err := todoRepo.List(c.Request.Context())
+		if err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": "could not retrieve todos"})
+            return
+        }
+		c.HTML(http.StatusOK, "index.html", gin.H{
+			"title": "Hello world",
+			"todos": todos,
+		})
+	})
+
+	//todo edit
+	engine.GET("todo/edit", func(c *gin.Context) {
+		id, err := strconv.Atoi(c.Query("id"))
+		if err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": "could not process invalid parameter "})
+			return
+		}
+		var todo *models.Todo
+		todo, err = todoRepo.GetByID(c.Request.Context(), uint(id))
+if err != nil {
+    log.Println("Error fetching todo:", err)
+    c.JSON(http.StatusInternalServerError, gin.H{"error": "could not retrieve todo"})
+    return
+}
+		c.HTML(http.StatusOK, "edit.html", gin.H{
+			"content": "Todo",
+			"todo":  todo,
+		})
+	})
+
+	engine.GET("/todo/delete", func(c *gin.Context) {
+		id, err := strconv.Atoi(c.Query("id"))
+		if err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": "could not process invalid parameter "})
+		}
+		// uint64型をuintに変換して代入
+		todoRepo.Delete(c.Request.Context(), uint(id))
+		c.Redirect(http.StatusMovedPermanently, "/index")
+	})
+
+	engine.POST("/todo/update", func(c *gin.Context) {
+		id, err := strconv.Atoi(c.PostForm("id"))
+		if err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": "could not process invalid parameter "})
+		}
+		content := c.PostForm("content")
+		var todo *models.Todo
+		todo, _ = todoRepo.GetByID(c.Request.Context(), uint(id));
+		todo.Content = content
+		todoRepo.Update(c.Request.Context(), todo)
+		c.Redirect(http.StatusMovedPermanently, "/index")
+	})
+
+	engine.POST("/todo/create", func(c *gin.Context) {
+		content := c.PostForm("content")
+		todoRepo.Create(c, &models.Todo{Content: content})
+		c.Redirect(http.StatusMovedPermanently, "/index")
+	})
 
 	fmt.Println("Database connection and setup successful")
-	r.Run(":8080")
+	engine.Run(":8080")
 }
