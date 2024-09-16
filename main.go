@@ -9,7 +9,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/oneoneniaoniao/go_todo/src/domain/models"
 	"github.com/oneoneniaoniao/go_todo/src/infrastructure/database"
-	repository "github.com/oneoneniaoniao/go_todo/src/infrastructure/database/repositories"
+	"github.com/oneoneniaoniao/go_todo/src/infrastructure/database/repositories"
+	"github.com/oneoneniaoniao/go_todo/src/usecase/services"
 )
 
 
@@ -21,7 +22,7 @@ func main() {
 	}
 	// リポジトリの初期化
 	todoRepo := repository.NewTodoRepository(db)
-
+	todoService := services.NewTodoService(todoRepo)
 
 	// Migrate the schema
 	err = db.AutoMigrate(&models.Todo{})
@@ -58,7 +59,7 @@ func main() {
 			return
 		}
 		var todo *models.Todo
-		todo, err = todoRepo.GetByID(c.Request.Context(), uint(id))
+		todo, err = todoService.GetTodoByID(c.Request.Context(), uint(id))
 if err != nil {
     log.Println("Error fetching todo:", err)
     c.JSON(http.StatusInternalServerError, gin.H{"error": "could not retrieve todo"})
@@ -76,7 +77,7 @@ if err != nil {
             c.JSON(http.StatusInternalServerError, gin.H{"error": "could not process invalid parameter "})
 		}
 		// uint64型をuintに変換して代入
-		todoRepo.Delete(c.Request.Context(), uint(id))
+		todoService.DeleteTodo(c.Request.Context(), uint(id))
 		c.Redirect(http.StatusMovedPermanently, "/index")
 	})
 
@@ -89,13 +90,13 @@ if err != nil {
 		var todo *models.Todo
 		todo, _ = todoRepo.GetByID(c.Request.Context(), uint(id));
 		todo.Content = content
-		todoRepo.Update(c.Request.Context(), todo)
+		todoService.UpdateTodo(c.Request.Context(), todo)
 		c.Redirect(http.StatusMovedPermanently, "/index")
 	})
 
 	engine.POST("/todo/create", func(c *gin.Context) {
 		content := c.PostForm("content")
-		todoRepo.Create(c, &models.Todo{Content: content})
+		todoService.CreateTodo(c,content)
 		c.Redirect(http.StatusMovedPermanently, "/index")
 	})
 
