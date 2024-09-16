@@ -4,13 +4,14 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/oneoneniaoniao/go_todo/src/domain/models"
 	"github.com/oneoneniaoniao/go_todo/src/infrastructure/database"
 	"github.com/oneoneniaoniao/go_todo/src/infrastructure/database/repositories"
 	"github.com/oneoneniaoniao/go_todo/src/usecase/services"
+	"github.com/oneoneniaoniao/go_todo/src/interface/controllers"
+
 )
 
 
@@ -23,6 +24,7 @@ func main() {
 	// リポジトリの初期化
 	todoRepo := repository.NewTodoRepository(db)
 	todoService := services.NewTodoService(todoRepo)
+	todoController := controllers.NewTodoController(todoService)
 
 	// Migrate the schema
 	err = db.AutoMigrate(&models.Todo{})
@@ -40,63 +42,41 @@ func main() {
 		var todos []*models.Todo
 
 		// Get all records
-		todos, err := todoRepo.List(c.Request.Context())
+		todos, err := todoController.ListTodos(c)
 		if err != nil {
-            c.JSON(http.StatusInternalServerError, gin.H{"error": "could not retrieve todos"})
-            return
-        }
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "could not retrieve todos"})
+				return
+		}
 		c.HTML(http.StatusOK, "index.html", gin.H{
-			"title": "Hello world",
-			"todos": todos,
+				"title": "やることリスト",
+				"todos": todos,
 		})
-	})
+})
 
 	//todo edit
 	engine.GET("todo/edit", func(c *gin.Context) {
-		id, err := strconv.Atoi(c.Query("id"))
+		todo, err := todoController.GetTodoByID(c)
 		if err != nil {
-            c.JSON(http.StatusInternalServerError, gin.H{"error": "could not process invalid parameter "})
 			return
 		}
-		var todo *models.Todo
-		todo, err = todoService.GetTodoByID(c.Request.Context(), uint(id))
-if err != nil {
-    log.Println("Error fetching todo:", err)
-    c.JSON(http.StatusInternalServerError, gin.H{"error": "could not retrieve todo"})
-    return
-}
 		c.HTML(http.StatusOK, "edit.html", gin.H{
-			"content": "Todo",
+			"content": "Todoの編集",
 			"todo":  todo,
 		})
 	})
 
 	engine.GET("/todo/delete", func(c *gin.Context) {
-		id, err := strconv.Atoi(c.Query("id"))
-		if err != nil {
-            c.JSON(http.StatusInternalServerError, gin.H{"error": "could not process invalid parameter "})
-		}
-		// uint64型をuintに変換して代入
-		todoService.DeleteTodo(c.Request.Context(), uint(id))
+		todoController.DeleteTodo(c)
 		c.Redirect(http.StatusMovedPermanently, "/index")
 	})
 
 	engine.POST("/todo/update", func(c *gin.Context) {
-		id, err := strconv.Atoi(c.PostForm("id"))
-		if err != nil {
-            c.JSON(http.StatusInternalServerError, gin.H{"error": "could not process invalid parameter "})
-		}
-		content := c.PostForm("content")
-		var todo *models.Todo
-		todo, _ = todoRepo.GetByID(c.Request.Context(), uint(id));
-		todo.Content = content
-		todoService.UpdateTodo(c.Request.Context(), todo)
+		todoController.UpdateTodo(c)
 		c.Redirect(http.StatusMovedPermanently, "/index")
 	})
 
 	engine.POST("/todo/create", func(c *gin.Context) {
-		content := c.PostForm("content")
-		todoService.CreateTodo(c,content)
+		todoController.CreateTodo(c)
 		c.Redirect(http.StatusMovedPermanently, "/index")
 	})
 
